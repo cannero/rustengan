@@ -5,7 +5,7 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    io::{StdoutLock, Write},
+    io::StdoutLock,
     time::Duration,
 };
 
