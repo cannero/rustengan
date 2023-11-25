@@ -5,7 +5,6 @@ use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
-    io::StdoutLock,
     time::Duration,
 };
 
@@ -53,7 +52,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
             // TODO: handle EOF signal
             loop {
                 std::thread::sleep(Duration::from_millis(300));
-                if let Err(_) = tx.send(Event::Injected(InjectedPayload::Gossip)) {
+                if tx.send(Event::Injected(InjectedPayload::Gossip)).is_err() {
                     break;
                 }
             }
@@ -72,11 +71,12 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
         })
     }
 
-    fn step(
+    fn step<W>(
         &mut self,
         input: Event<Payload, InjectedPayload>,
-        output: &mut StdoutLock,
-    ) -> anyhow::Result<()> {
+        writer: &mut W,
+    ) -> anyhow::Result<()>
+    where W: MessageWriter<Message<Payload>> {
         match input {
             Event::EOF => {}
             Event::Injected(payload) => match payload {
@@ -102,7 +102,8 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                                 already_known.len() as u32,
                             )
                         }));
-                        Message {
+                        writer.write(
+                        &Message {
                             src: self.node.clone(),
                             dst: n.clone(),
                             body: Body {
@@ -110,8 +111,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                                 in_reply_to: None,
                                 payload: Payload::Gossip { seen: notify_of },
                             },
-                        }
-                        .send(&mut *output)
+                        })
                         .with_context(|| format!("gossip to {}", n))?;
                     }
                 }
@@ -129,20 +129,20 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
                     Payload::Broadcast { message } => {
                         self.messages.insert(message);
                         reply.body.payload = Payload::BroadcastOk;
-                        reply.send(&mut *output).context("reply to broadcast")?;
+                        writer.write(&reply).context("reply to broadcast")?;
                     }
                     Payload::Read => {
                         reply.body.payload = Payload::ReadOk {
                             messages: self.messages.clone(),
                         };
-                        reply.send(&mut *output).context("reply to read")?;
+                        writer.write(&reply).context("reply to read")?;
                     }
                     Payload::Topology { mut topology } => {
                         self.neighborhood = topology
                             .remove(&self.node)
                             .unwrap_or_else(|| panic!("no topology given for node {}", self.node));
                         reply.body.payload = Payload::TopologyOk;
-                        reply.send(&mut *output).context("reply to topology")?;
+                        writer.write(&reply).context("reply to topology")?;
                     }
                     Payload::BroadcastOk | Payload::ReadOk { .. } | Payload::TopologyOk => {}
                 }

@@ -1,6 +1,9 @@
+mod writers;
+
 use anyhow::Context;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::io::{BufRead, StdoutLock, Write};
+use writers::StdoutWriter;
+use std::io::BufRead;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message<Payload> {
@@ -25,15 +28,6 @@ impl<Payload> Message<Payload> {
                 payload: self.body.payload,
             },
         }
-    }
-
-    pub fn send(&self, output: &mut impl Write) -> anyhow::Result<()>
-    where
-        Payload: Serialize,
-    {
-        serde_json::to_writer(&mut *output, self).context("serialize response message")?;
-        output.write_all(b"\n").context("write trailing newline")?;
-        Ok(())
     }
 }
 
@@ -76,11 +70,19 @@ pub trait Node<S, Payload, InjectedPayload = ()> {
     where
         Self: Sized;
 
-    fn step(
+    fn step<Writer>(
         &mut self,
         input: Event<Payload, InjectedPayload>,
-        output: &mut StdoutLock,
-    ) -> anyhow::Result<()>;
+        writer: &mut Writer,
+    ) -> anyhow::Result<()>
+    where
+        Writer: MessageWriter<Message<Payload>>;
+}
+
+pub trait MessageWriter<M> {
+    fn write(&mut self, message: &M) -> anyhow::Result<()>
+    where
+        M: Serialize;
 }
 
 pub fn main_loop<S, N, P, IP>(init_state: S) -> anyhow::Result<()>
@@ -93,7 +95,8 @@ where
 
     let stdin = std::io::stdin().lock();
     let mut stdin = stdin.lines();
-    let mut stdout = std::io::stdout().lock();
+    let stdout = std::io::stdout().lock();
+    let mut writer = StdoutWriter::new(stdout);
 
     let init_msg: Message<InitPayload> = serde_json::from_str(
         &stdin
@@ -118,7 +121,8 @@ where
         },
     };
 
-    reply.send(&mut stdout).context("send response to init")?;
+    //reply.send(&mut stdout).context("send response to init")?;
+    writer.write(&reply).context("send response to init")?;
 
     drop(stdin);
     let jh = std::thread::spawn(move || {
@@ -127,7 +131,7 @@ where
             let line = line.context("Maelstrom input from STDIN could not be read")?;
             let input: Message<P> = serde_json::from_str(&line)
                 .context("Maelstrom input from STDIN could not be deserialized")?;
-            if let Err(_) = tx.send(Event::Message(input)) {
+            if tx.send(Event::Message(input)).is_err() {
                 return Ok::<_, anyhow::Error>(());
             }
         }
@@ -136,7 +140,7 @@ where
     });
 
     for input in rx {
-        node.step(input, &mut stdout)
+        node.step(input, &mut writer)
             .context("Node step function failed")?;
     }
 

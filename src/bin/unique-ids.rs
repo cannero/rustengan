@@ -2,7 +2,6 @@ use rustengan::*;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use std::io::StdoutLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -32,7 +31,8 @@ impl Node<(), Payload> for UniqueNode {
         })
     }
 
-    fn step(&mut self, input: Event<Payload>, output: &mut StdoutLock) -> anyhow::Result<()> {
+    fn step<Writer>(&mut self, input: Event<Payload>, writer: &mut Writer) -> anyhow::Result<()> 
+    where Writer: MessageWriter<Message<Payload>>{
         let Event::Message(input) = input else {
             panic!("got injected event when there's no event injection");
         };
@@ -42,7 +42,7 @@ impl Node<(), Payload> for UniqueNode {
             Payload::Generate => {
                 let guid = format!("{}-{}", self.node, self.id);
                 reply.body.payload = Payload::GenerateOk { guid };
-                reply.send(output).context("send response to generate")?;
+                writer.write(&reply).context("send response to generate")?;
             }
             Payload::GenerateOk { .. } => {}
         }
