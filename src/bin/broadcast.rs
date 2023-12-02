@@ -76,7 +76,7 @@ impl Node<(), Payload, InjectedPayload> for BroadcastNode {
         input: Event<Payload, InjectedPayload>,
         writer: &mut W,
     ) -> anyhow::Result<()>
-    where W: MessageWriter<Message<Payload>> {
+    where W: MessageWriter<Payload> {
         match input {
             Event::EOF => {}
             Event::Injected(payload) => match payload {

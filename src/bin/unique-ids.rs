@@ -32,7 +32,7 @@ impl Node<(), Payload> for UniqueNode {
     }
 
     fn step<Writer>(&mut self, input: Event<Payload>, writer: &mut Writer) -> anyhow::Result<()> 
-    where Writer: MessageWriter<Message<Payload>>{
+    where Writer: MessageWriter<Payload>{
         let Event::Message(input) = input else {
             panic!("got injected event when there's no event injection");
         };
